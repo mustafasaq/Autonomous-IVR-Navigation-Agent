@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 
-import audioop
+import numpy as np
 import webrtcvad
 from vosk import Model, KaldiRecognizer
 from google import genai
@@ -40,7 +40,6 @@ class IVRAgent:
         self.model = Model(vosk_model_path)
         self.in_sample_rate = 8000
         self.vosk_sample_rate = 16000
-        self._ratecv_state = None
         self.rec = KaldiRecognizer(self.model, self.vosk_sample_rate)
         self.rec.SetWords(False)
         self.mem = AgentMemory()
@@ -52,20 +51,17 @@ class IVRAgent:
         self.mem = AgentMemory()
         self.speech_flags = []
         self.last_speech_ratio = 0.0
-        self._ratecv_state = None
         self.rec = KaldiRecognizer(self.model, self.vosk_sample_rate)
         self.rec.SetWords(False)
 
     def _resample_8k_to_16k(self, pcm16_8k: bytes) -> bytes:
-        pcm16_16k, self._ratecv_state = audioop.ratecv(
-            pcm16_8k,
-            2,
-            1,
-            self.in_sample_rate,
-            self.vosk_sample_rate,
-            self._ratecv_state
-        )
-        return pcm16_16k
+        if not pcm16_8k:
+            return b""
+        samples = np.frombuffer(pcm16_8k, dtype=np.int16)
+        if samples.size == 0:
+            return b""
+        upsampled = np.repeat(samples, 2)
+        return upsampled.astype(np.int16).tobytes()
 
     def ingest_audio_and_transcribe(self, pcm16_8k: bytes) -> Optional[str]:
         pcm16_16k = self._resample_8k_to_16k(pcm16_8k)
