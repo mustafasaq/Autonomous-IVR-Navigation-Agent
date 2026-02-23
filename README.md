@@ -1,105 +1,98 @@
-# Phantom Secretary
+# Autonomous IVR Navigation Agent
 
-Autonomous voice agent for real-time IVR navigation and human handoff.
+This project is an autonomous phone-call assistant for real-world IVR systems.
 
-## Delivered Capabilities
+It places an outbound call, listens to the live menu audio, transcribes what the IVR is saying, and makes real-time decisions (DTMF, wait, handoff, patch user in, hang up). When a human representative is detected, it can generate a handoff message and bridge the user into the same call.
 
-- Autonomous call flow that dials a target IVR, listens, navigates menus with DTMF, detects humans, and patches the user in.
-- Explicit ASR+VAD call-state machine (`LISTENING`, `MENU`, `HOLD`, `HUMAN_DETECTED`, `HANDOFF_READY`, `PATCHING_USER`, `BRIDGED`, `FINISHED`).
-- Concurrent orchestration of:
-  - Twilio Media Streams WebSocket ingestion
-  - Twilio call/conference control
-  - Gemini planning calls
-  - ElevenLabs TTS generation
-  against shared session state with lock-based coordination.
-- Production-style KPI tracking (`/api/metrics`) for:
-  - distinct IVR systems covered
-  - autonomous sessions
-  - average saved hold time
-  - target gate: `goal_15m_10systems_met`
+Built on FastAPI + Twilio Media Streams with an explicit state machine, this repo is designed to run live telephony sessions end-to-end from a single dashboard.
 
-## Bullet-Point Alignment
+## What It Does
 
-This codebase now directly supports the requested claims:
+- Starts and controls outbound IVR calls with Twilio.
+- Ingests streaming call audio over WebSocket.
+- Uses Vosk ASR + WebRTC VAD for live call-state classification.
+- Runs a planner loop to choose one safe action at a time.
+- Bridges user + business call legs via conference when ready.
+- Tracks session metrics (`/api/metrics`) including saved hold time and systems covered.
 
-1. **Autonomous voice agent over unpredictable IVR systems**
-- Implemented end-to-end observe -> plan -> act loop in `/Users/mustafa/Desktop/Uni/Caller/backend/app/main.py` and `/Users/mustafa/Desktop/Uni/Caller/backend/app/agent.py`.
-- Tracks system-level coverage and saved-hold KPIs in `/Users/mustafa/Desktop/Uni/Caller/backend/app/metrics.py`.
+## Project Structure
 
-2. **FastAPI backend with explicit call-state machine using ASR + VAD**
-- Explicit machine in `/Users/mustafa/Desktop/Uni/Caller/backend/app/state_machine.py`.
-- Live audio classification driven by Vosk ASR transcript + WebRTC VAD speech ratio in `/Users/mustafa/Desktop/Uni/Caller/backend/app/main.py`.
+```
+Caller/
+├── .env.example
+├── .gitignore
+├── README.md
+├── requirements.txt
+└── app/
+    ├── main.py               # API routes + orchestration loop
+    ├── agent.py              # ASR/VAD + planner + action sanitization
+    ├── state_machine.py      # explicit call state machine
+    ├── metrics.py            # KPI aggregation
+    ├── telephony.py          # Twilio helpers + TwiML builders
+    ├── tts.py                # ElevenLabs helper
+    ├── audio.py              # audio decode/chunk utils
+    ├── static/app.js         # dashboard client logic
+    ├── templates/index.html  # dashboard UI
+    └── models/               # local Vosk model files
+```
 
-3. **Concurrent WebSocket ingestion, conference bridging, and multi-service APIs under real-time constraints**
-- Media handling in `WS /ws/media`.
-- Non-blocking external service calls via `asyncio.to_thread` for Twilio, Gemini, ElevenLabs.
-- Shared-state coordination through `SESSION_LOCK` in `/Users/mustafa/Desktop/Uni/Caller/backend/app/main.py`.
-
-## Project Layout
-
-- `/Users/mustafa/Desktop/Uni/Caller/backend/app/main.py`: FastAPI orchestrator, session lifecycle, real-time loop.
-- `/Users/mustafa/Desktop/Uni/Caller/backend/app/state_machine.py`: explicit call-state machine.
-- `/Users/mustafa/Desktop/Uni/Caller/backend/app/agent.py`: ASR, VAD, planner, safe action sanitizer.
-- `/Users/mustafa/Desktop/Uni/Caller/backend/app/metrics.py`: KPI/session metrics store.
-- `/Users/mustafa/Desktop/Uni/Caller/backend/app/telephony.py`: Twilio helpers and TwiML builders.
-- `/Users/mustafa/Desktop/Uni/Caller/backend/app/templates/index.html`: Netflix-inspired animated dashboard.
-- `/Users/mustafa/Desktop/Uni/Caller/backend/app/static/app.js`: dashboard logic, live telemetry polling.
-
-## Prerequisites
+## Requirements
 
 - Python 3.11+
-- Twilio account + Twilio phone number
-- Public HTTPS URL reachable by Twilio (ngrok for local development)
+- Twilio account + phone number
+- Public HTTPS URL reachable by Twilio
 - Gemini API key
-- Optional: ElevenLabs API key + voice id
+- Optional: ElevenLabs API key + voice ID
 
-## Setup
-
-1. Install dependencies:
+## Local Setup
 
 ```bash
 cd /Users/mustafa/Desktop/Uni/Caller
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-2. Create env file:
+Fill `.env` with:
 
-```bash
-cp /Users/mustafa/Desktop/Uni/Caller/backend/.env.example /Users/mustafa/Desktop/Uni/Caller/backend/.env
-```
-
-3. Fill required values in `/Users/mustafa/Desktop/Uni/Caller/backend/.env`:
 - `PUBLIC_BASE_URL`
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_NUMBER`
 - `GEMINI_API_KEY`
+- optional: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `VOSK_MODEL_PATH`
 
 ## Run
 
 ```bash
-cd /Users/mustafa/Desktop/Uni/Caller/backend
+cd /Users/mustafa/Desktop/Uni/Caller
 uvicorn app.main:app --reload --port 8000
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
+Open: `http://127.0.0.1:8000`
 
-## API Endpoints
+## Main Endpoints
 
-- `GET /`: control-room dashboard
-- `POST /api/start`: start an autonomous call session
-- `POST /api/stop`: stop active session and hang up
-- `GET /api/status`: live status, state machine snapshot, config status
-- `GET /api/metrics`: KPI summary across sessions
-- `GET /health`: startup readiness checks
-- `POST /twiml/outbound`: TwiML for business leg (stream + conference)
-- `POST /twiml/join_user`: TwiML for user patch-in leg
-- `GET /audio/handoff.mp3`: handoff audio asset
-- `WS /ws/ui`: live log stream to UI
-- `WS /ws/media`: Twilio Media Streams ingress
+- `GET /` dashboard
+- `POST /api/start` start session
+- `POST /api/stop` stop session
+- `GET /api/status` session + state snapshot
+- `GET /api/metrics` KPI summary
+- `GET /health` readiness check
+- `POST /twiml/outbound` TwiML for business leg
+- `POST /twiml/join_user` TwiML for user leg
+- `GET /audio/handoff.mp3` generated handoff audio
+- `WS /ws/ui` dashboard log stream
+- `WS /ws/media` Twilio media ingress
 
-## Verifying the KPI Claim
+## Deploy (Any Python Host)
 
-Use `GET /api/metrics` to monitor progress toward target outcomes (for example, average saved minutes and number of IVR systems covered).
+- Build: `pip install -r requirements.txt`
+- Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Set `PUBLIC_BASE_URL` to your deployed HTTPS URL
+
+## Git Safety
+
+- `.gitignore` excludes `.env`, virtualenvs, caches, logs, and key/cert files.
+- Keep `.env.example` in git; never commit `.env`.

@@ -23,9 +23,9 @@ from app.tts import elevenlabs_tts_mp3
 
 
 APP_DIR = Path(__file__).resolve().parent
-BACKEND_DIR = APP_DIR.parent
+PROJECT_DIR = APP_DIR.parent
 
-load_dotenv(BACKEND_DIR / ".env")
+load_dotenv(PROJECT_DIR / ".env")
 load_dotenv()
 
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")

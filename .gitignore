@@ -19,15 +19,11 @@ htmlcov/
 .venv/
 venv/
 env/
-backend/.venv/
 
 # Env files / secrets
 .env
 .env.*
-backend/.env
-backend/.env.*
 !.env.example
-!backend/.env.example
 
 # Logs
 *.log
@@ -62,4 +58,4 @@ id_rsa.pub
 node_modules/
 
 # Optional: ignore local speech model binaries if you do not want to push them
-# backend/app/models/
+# app/models/

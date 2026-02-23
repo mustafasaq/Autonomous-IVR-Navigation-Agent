@@ -1,1 +1,10 @@
--r backend/requirements.txt
+fastapi
+uvicorn[standard]
+python-dotenv
+twilio
+webrtcvad
+vosk
+numpy
+requests
+google-genai
+jinja2
