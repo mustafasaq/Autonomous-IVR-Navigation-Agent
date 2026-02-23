@@ -38,7 +38,7 @@ Caller/
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+ (3.13 supported in code, but pin 3.12 on deploy for safest demo stability)
 - Twilio account + phone number
 - Public HTTPS URL reachable by Twilio
 - Gemini API key
@@ -91,6 +91,25 @@ Open: `http://127.0.0.1:8000`
 - Build: `pip install -r requirements.txt`
 - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Set `PUBLIC_BASE_URL` to your deployed HTTPS URL
+
+## Deploy On Koyeb (Free Tier)
+
+1. Push your latest code (including `.python-version`, `requirements.txt`, and app files).
+2. Create a Koyeb Web Service from this repo using **Buildpack**.
+3. In Build settings:
+- Build command override: leave empty/off.
+- Run command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1`
+4. In Environment variables, set:
+- `PUBLIC_BASE_URL=https://<your-koyeb-url>`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_FROM_NUMBER`
+- `GEMINI_API_KEY`
+- Optional: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `VOSK_MODEL_PATH`
+5. In Twilio, set your voice webhook to:
+- `https://<your-koyeb-url>/voice`
+
+If deploy logs show Python 3.13 unexpectedly, verify `.python-version` is committed and pushed.
 
 ## Git Safety
 
