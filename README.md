@@ -1,5 +1,7 @@
 # Autonomous IVR Navigation Agent
 
+#### NOTE: Live demo disabled due to third-party API costs; full architecture and implementation available in repository
+
 This project is an autonomous phone-call assistant for real-world IVR systems.
 
 It places an outbound call, listens to the live menu audio, transcribes what the IVR is saying, and makes real-time decisions (DTMF, wait, handoff, patch user in, hang up). When a human representative is detected, it can generate a handoff message and bridge the user into the same call.
