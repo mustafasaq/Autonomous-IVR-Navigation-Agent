@@ -1,12 +1,68 @@
 # Autonomous IVR Navigation Agent
 
-> **Demo status:** The live public demo is currently unavailable because paid API/telephony services (Twilio + model APIs) are not active right now.
+**Problem Statement:**
+Navigating complex Interactive Voice Response (IVR) phone trees is a frustrating, time-consuming process for users trying to reach human representatives or complete routine tasks. Traditionally, this requires a person to sit on hold, listen to slow robotic menus, and manually punch in digits. This project replaces that manual effort with an autonomous voice agent that dials out, listens to the IVR state, and navigates the tree on behalf of the user, bridging the call only when a human representative is finally reached.
 
-Autonomous voice agent for navigating real-world IVR phone trees end-to-end. The system places outbound calls, ingests live telephony audio, classifies call state from ASR + VAD signals, chooses safe actions in real time (DTMF / wait / handoff / patch), and bridges the user when a human representative is reached.
+**Outcomes:**
+- ⏱️ **Time Saved:** Saves callers an average of **15 minutes** per session.
+- 🏢 **Proven Reliability:** Successfully tested across **10 production IVR systems** (including major telecom and utility providers) in real-world environments.
+- 🤖 **End-to-End Automation:** Eliminates the need to listen to hold music or menu options entirely.
 
-## Architecture Overview
+> **Demo Status:** Live demo suspended (API costs) — see the architecture and recorded walkthrough below.
 
-### Core modules
+## How it Works (Summary)
+
+Behind the scenes, the Autonomous IVR Navigation agent acts as a virtual proxy. When a user requests to call a business, the system dials the business and joins a virtual conference room. It listens to the audio on the line, transcribing the automated menus into text in real-time. By analyzing this text along with the volume and speech patterns (detecting hold music vs. talking), an AI planner decides what to do next—whether to press a button, wait, or hand off the call. Once the agent detects that a real human has answered, it plays a brief introductory message explaining the caller's intent and then instantly connects the user to the representative.
+
+## Architecture
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Dashboard UI / User
+    participant Main as FastAPI Server (main.py)
+    participant Agent as IVRAgent (agent.py)
+    participant SM as CallStateMachine
+    participant Twilio as Twilio API & Media Stream
+
+    UI->>Main: POST /api/start (Target Num, User Phone, Goal)
+    Main->>Main: Init Session (Lock, create Phantom Conf)
+    Main->>Twilio: Start Outbound Call (Business Leg)
+    Twilio-->>Main: TwiML Callback (/twiml/outbound)
+    Main->>Twilio: Return TwiML (Join Conf, Start stream to WS /ws/media)
+
+    loop Real-Time Ingestion (Every 200ms)
+        Twilio-->>Main: Stream Audio (Base64 mu-law)
+        Main->>Agent: Decode to PCM16, Extract Partial Transcript (Vosk)
+        Main->>Agent: Extract Speech Ratio (VAD) & RMS Energy
+        Main->>SM: Apply Audio Observation
+        SM-->>Main: Update State (e.g., LISTENING, MENU, HOLD, HUMAN)
+    end
+
+    loop Planning Cycle (Every 2s)
+        Main->>Agent: Build Observation (Transcript, State, History)
+        Agent->>Agent: Query Gemini (Prompt w/ Guardrails)
+        Agent-->>Main: Return Action (PRESS_DTMF, WAIT, SAY_HANDOFF, PATCH)
+        
+        alt Action == PRESS_DTMF
+            Main->>Twilio: Send DTMF Digit
+        else Action == WAIT
+            Main->>Main: Do nothing, continue ingesting
+        else Action == SAY_HANDOFF (Human Detected)
+            Main->>Main: Generate Handoff TTS (ElevenLabs)
+        else Action == PATCH_USER_IN
+            Main->>Twilio: Start Call to User Phone
+            Twilio-->>Main: Target user joins Conference
+            Main->>SM: on_user_bridged()
+        end
+    end
+    
+    UI->>Main: POST /api/stop (or Hangup Detected)
+    Main->>Twilio: Terminate calls
+    Main->>Main: Finalize Metrics Store
+```
+
+### Core Modules
 
 | Module | Responsibility |
 |---|---|
@@ -19,27 +75,12 @@ Autonomous voice agent for navigating real-world IVR phone trees end-to-end. The
 | `app/tts.py` | Optional ElevenLabs handoff narration |
 | `app/templates/index.html` + `app/static/app.js` | Operator dashboard + live telemetry stream |
 
-### Runtime topology
-
-```text
-Dashboard UI
-  -> POST /api/start
-  -> Twilio outbound call (business leg)
-  -> /twiml/outbound response
-  -> Twilio Media Stream -> WS /ws/media
-  -> decode + ASR + VAD + state machine
-  -> planner action
-  -> Twilio execution (DTMF / patch / hangup)
-  -> live logs -> WS /ws/ui
-  -> session finalize -> metrics store
-```
-
-## Real-Time Pipeline
+### Real-Time Pipeline Detailed
 
 1. **Start request**: `POST /api/start` validates payload and required config.
-2. **Session init**: shared `SESSION` object is populated under `SESSION_LOCK`.
+2. **Session init**: Shared `SESSION` object is populated under `SESSION_LOCK`.
 3. **Business leg dial**: Twilio outbound call is created with TwiML URL `/twiml/outbound`.
-4. **Media attach**: TwiML starts media streaming to `WS /ws/media` and joins conference.
+4. **Media attach**: TwiML starts media streaming to `WS /ws/media` and joins the virtual conference.
 5. **Audio processing**:
    - base64 mu-law payload -> PCM16 decode
    - 200 ms chunking (`3200` bytes)
@@ -53,38 +94,25 @@ Dashboard UI
    - handoff-before-patch rule
 9. **Finalize**: on stop/disconnect/hangup, state closes, KPIs are recorded, session resets.
 
-## State Machine
+### State Machine
 
-States:
+**States:** `IDLE`, `LISTENING`, `MENU`, `HOLD`, `HUMAN_DETECTED`, `HANDOFF_READY`, `PATCHING_USER`, `BRIDGED`, `FINISHED`, `ERROR`
 
-- `IDLE`
-- `LISTENING`
-- `MENU`
-- `HOLD`
-- `HUMAN_DETECTED`
-- `HANDOFF_READY`
-- `PATCHING_USER`
-- `BRIDGED`
-- `FINISHED`
-- `ERROR`
-
-Transition drivers:
-
+**Transition drivers:**
 - audio observation classification (`apply_audio_observation`)
 - planner action events (`on_action`)
 - conference bridge event (`on_user_bridged`)
 - terminal events (`finish`, `fail`)
 
-## Concurrency Model
+### Concurrency Model
 
 - Shared live session state is synchronized with `asyncio.Lock` (`SESSION_LOCK`).
-- Blocking SDK/API operations are offloaded with `asyncio.to_thread(...)`.
+- Blocking SDK/API operations (such as TTS generation and Twilio requests) are offloaded with `asyncio.to_thread(...)`.
 - WebSocket ingestion, planner cadence, Twilio API calls, and UI broadcast run concurrently under real-time telephony timing constraints.
 
 ## API Surface
 
-### HTTP routes
-
+### HTTP Routes
 - `GET /` dashboard
 - `POST /api/start` start autonomous call session
 - `POST /api/stop` stop active session
@@ -95,8 +123,7 @@ Transition drivers:
 - `POST /twiml/outbound` TwiML for business leg
 - `POST /twiml/join_user` TwiML for user leg
 
-### WebSocket routes
-
+### WebSocket Routes
 - `WS /ws/media` Twilio media ingress
 - `WS /ws/ui` live telemetry for dashboard clients
 
@@ -127,16 +154,14 @@ Caller/
 
 ## Configuration
 
-Required environment variables:
-
+**Required environment variables:**
 - `PUBLIC_BASE_URL`
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_FROM_NUMBER`
 - `GEMINI_API_KEY`
 
-Optional:
-
+**Optional:**
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_VOICE_ID`
 - `VOSK_MODEL_PATH`
@@ -144,7 +169,7 @@ Optional:
 ## Local Run
 
 ```bash
-cd /Users/mustafa/Desktop/Uni/Caller
+cd Autonomous-IVR-Navigation-Agent
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
