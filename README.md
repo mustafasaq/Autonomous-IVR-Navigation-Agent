@@ -1,6 +1,6 @@
 # Autonomous IVR Navigation Agent
 
-**Problem Statement:**
+
 Navigating complex Interactive Voice Response (IVR) phone trees is a frustrating, time-consuming process for users trying to reach human representatives or complete routine tasks. Traditionally, this requires a person to sit on hold, listen to slow robotic menus, and manually punch in digits. This project replaces that manual effort with an autonomous voice agent that dials out, listens to the IVR state, and navigates the tree on behalf of the user, bridging the call only when a human representative is finally reached.
 
 **Outcomes:**
